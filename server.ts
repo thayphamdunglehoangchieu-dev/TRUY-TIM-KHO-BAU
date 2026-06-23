@@ -29,22 +29,20 @@ if (apiKey && apiKey !== "MY_GEMINI_API_KEY") {
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-function getGoogleGenAI(req: Request): GoogleGenAI | null {
-  const clientApiKey = req.headers['x-api-key'] as string || process.env.GEMINI_API_KEY;
-  if (clientApiKey && clientApiKey !== "MY_GEMINI_API_KEY") {
-    return new GoogleGenAI({
-      apiKey: clientApiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        },
-      },
-    });
-  }
-  return null;
+function getGoogleGenAIKeysPool(req: Request): string[] {
+  const clientApiKeyHeader = req.headers['x-api-key'] as string || process.env.GEMINI_API_KEY || '';
+  const keysPool = clientApiKeyHeader
+    .split(',')
+    .map(k => k.trim())
+    .filter(Boolean)
+    .filter(k => k !== "MY_GEMINI_API_KEY");
+  return keysPool;
 }
 
-async function generateContentWithRetry(aiClient: GoogleGenAI, params: any, preferredModel: string, retries = 3) {
+async function generateContentWithRetry(keysPool: string[], params: any, preferredModel: string, retries = 3) {
+  if (!keysPool || keysPool.length === 0) {
+    throw new Error('Không tìm thấy Gemini API Key. Vui lòng cấu hình API Key trong mục Cấu hình AI.');
+  }
   let lastError: any = null;
   
   // Model cascading list based on AI_INSTRUCTIONS.md:
@@ -59,29 +57,58 @@ async function generateContentWithRetry(aiClient: GoogleGenAI, params: any, pref
     ...defaultChain.filter(m => m !== preferredModel)
   ];
   
-  for (let attempt = 0; attempt < retries; attempt++) {
-    const modelToUse = modelChain[attempt] || 'gemini-3-flash-preview';
+  for (let keyIdx = 0; keyIdx < keysPool.length; keyIdx++) {
+    const apiKey = keysPool[keyIdx];
     
-    try {
-      console.log(`[Gemini Request] Attempt ${attempt + 1}/${retries} using model ${modelToUse}...`);
-      const response = await aiClient.models.generateContent({
-        ...params,
-        model: modelToUse
-      });
-      return response;
-    } catch (err: any) {
-      lastError = err;
-      const errorMessage = err?.message || err?.toString() || 'Unknown error';
-      console.warn(`[Gemini Attempt ${attempt + 1}/${retries}] Error using ${modelToUse}:`, errorMessage);
+    // Initialize client for the current API Key
+    const aiClient = new GoogleGenAI({
+      apiKey: apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+    
+    console.log(`[Gemini Request] Using API Key #${keyIdx + 1}/${keysPool.length} (ends with ...${apiKey.slice(-5)})...`);
+    
+    for (let attempt = 0; attempt < retries; attempt++) {
+      const modelToUse = modelChain[attempt] || 'gemini-3-flash-preview';
       
-      if (attempt < retries - 1) {
-        const delay = 1000 * (attempt + 1);
-        console.log(`Waiting ${delay}ms before cascading/retrying...`);
-        await sleep(delay);
+      try {
+        console.log(`[Gemini Request] Attempt ${attempt + 1}/${retries} using model ${modelToUse} with API Key #${keyIdx + 1}...`);
+        const response = await aiClient.models.generateContent({
+          ...params,
+          model: modelToUse
+        });
+        return response;
+      } catch (err: any) {
+        lastError = err;
+        const errorMessage = err?.message || err?.toString() || 'Unknown error';
+        console.warn(`[Gemini Error] API Key #${keyIdx + 1} with ${modelToUse} failed:`, errorMessage);
+        
+        // If the error is a quota exhaustion, invalid key, or rate limit, rotate immediately
+        const isQuotaOrAuthError = errorMessage.includes('RESOURCE_EXHAUSTED') || 
+                                   errorMessage.includes('quota') || 
+                                   errorMessage.includes('API_KEY') || 
+                                   errorMessage.includes('429') || 
+                                   errorMessage.includes('403');
+                                   
+        if (isQuotaOrAuthError) {
+          console.warn(`[Gemini Rotation] API Key #${keyIdx + 1} seems exhausted/invalid. Rotating to next API key...`);
+          break; // Break the model attempts loop and proceed to the next API Key
+        }
+        
+        if (attempt < retries - 1) {
+          const delay = 1000 * (attempt + 1);
+          console.log(`Waiting ${delay}ms before cascading/retrying...`);
+          await sleep(delay);
+        }
       }
     }
   }
-  throw lastError;
+  
+  throw lastError || new Error('Tất cả các API Keys và cấu hình model đều bị lỗi/hết hạn mức.');
 }
 
 // In-memory logs representing real-time student activity database
@@ -611,8 +638,8 @@ app.get('/api/teacher/logs', (req: Request, res: Response) => {
 app.post('/api/gemini/get-hint', async (req: Request, res: Response) => {
   const { questionText, studentAnswer, category, station } = req.body;
 
-  const aiClient = getGoogleGenAI(req);
-  if (!aiClient) {
+  const keysPool = getGoogleGenAIKeysPool(req);
+  if (keysPool.length === 0) {
     // Offline AI Master fallback
     res.json({
       hint: `Hãy suy nghĩ kỹ nhé nhà thám hiểm! Bạn trả lời là "${studentAnswer}". Gợi ý: Hãy xem lại bước tính liên quan và thử tính toán lại nhé!`
@@ -634,7 +661,7 @@ Nhiệm vụ của bạn:
 2. Viết bằng tiếng Việt trong sáng, đầy cảm hứng, gần gũi với học sinh tiểu học/trung học (Ví dụ xưng hô: "Nhà thám hiểm ơi...", "Đừng nản chí nhé...").
 3. Hãy ngắn gọn, súc tích (tầm 2-3 câu). Giữ bản quyền ghi nhận "Giáo viên: Phạm Văn Dũng" nếu phù hợp một cách tế nhị.`;
 
-    const response = await generateContentWithRetry(aiClient, {
+    const response = await generateContentWithRetry(keysPool, {
       contents: prompt,
       config: {
         temperature: 0.8,
@@ -652,8 +679,8 @@ Nhiệm vụ của bạn:
 app.post('/api/gemini/generate-questions', async (req: Request, res: Response) => {
   const { theme, grade } = req.body; // e.g. "Toán lớp 6", "Hình học và Số học lý thú"
   
-  const aiClient = getGoogleGenAI(req);
-  if (!aiClient) {
+  const keysPool = getGoogleGenAIKeysPool(req);
+  if (keysPool.length === 0) {
     res.status(500).json({ error: 'Gemini server is running in offline mode. Please configure GEMINI_API_KEY to unlock dynamic generation.' });
     return;
   }
@@ -676,7 +703,7 @@ CHÚ Ý ĐẶC BIỆT VỀ KÝ HIỆU TOÁN HỌC:
 
 Trả về một mảng JSON các đối tượng đúng với schema quy định.`;
 
-    const response = await generateContentWithRetry(aiClient, {
+    const response = await generateContentWithRetry(keysPool, {
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -832,8 +859,8 @@ function getResponseSchema(challengeType: string) {
 app.post('/api/gemini/ocr-import', async (req: Request, res: Response) => {
   const { docContent, challengeType } = req.body; // text representation extracted from doc/pasted text and challenge type
 
-  const aiClient = getGoogleGenAI(req);
-  if (!aiClient) {
+  const keysPool = getGoogleGenAIKeysPool(req);
+  if (keysPool.length === 0) {
     res.status(500).json({ error: 'Gemini server is running in offline mode. Please configure GEMINI_API_KEY.' });
     return;
   }
@@ -895,7 +922,7 @@ CHÚ Ý ĐẶC BIỆT VỀ KÝ HIỆU TOÁN HỌC:
 Trả về cấu trúc JSON đúng chuẩn mảng 22 câu hỏi tương thích với schema trò chơi.`;
     }
 
-    const response = await generateContentWithRetry(aiClient, {
+    const response = await generateContentWithRetry(keysPool, {
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -923,8 +950,8 @@ import mammoth from 'mammoth';
 app.post('/api/gemini/ocr-file', async (req: Request, res: Response) => {
   const { fileBase64, fileName, mimeType, challengeType } = req.body;
 
-  const aiClient = getGoogleGenAI(req);
-  if (!aiClient) {
+  const keysPool = getGoogleGenAIKeysPool(req);
+  if (keysPool.length === 0) {
     res.status(500).json({ error: 'Gemini server is running in offline mode. Please configure GEMINI_API_KEY.' });
     return;
   }
@@ -1015,7 +1042,7 @@ Trả về một mảng JSON 22 trạm chuẩn chỉnh theo đúng cấu trúc S
       ];
     }
 
-    const response = await generateContentWithRetry(aiClient, {
+    const response = await generateContentWithRetry(keysPool, {
       contents: contents,
       config: {
         responseMimeType: 'application/json',
@@ -1040,8 +1067,8 @@ Trả về một mảng JSON 22 trạm chuẩn chỉnh theo đúng cấu trúc S
 
 // 9. Gemini: Analyze student performance dashboard & output report suggestions
 app.post('/api/gemini/generate-report-suggestions', async (req: Request, res: Response) => {
-  const aiClient = getGoogleGenAI(req);
-  if (!aiClient) {
+  const keysPool = getGoogleGenAIKeysPool(req);
+  if (keysPool.length === 0) {
     // Return markdown statically
     res.json({
       report: `### BÁO CÁO HÀNH TRÌNH TRUY TÌM KHO BÁU
@@ -1079,7 +1106,7 @@ Dựa trên dữ liệu trên, hãy viết một bản Báo cáo Phân tích Das
 
 Lưu ý: Bạn hãy tính toán trực quan dựa trên logs và đưa ra đề xuất sâu sắc, có trách nhiệm.`;
 
-    const response = await generateContentWithRetry(aiClient, {
+    const response = await generateContentWithRetry(keysPool, {
       contents: prompt,
       config: {
         temperature: 0.6,
