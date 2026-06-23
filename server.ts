@@ -895,14 +895,14 @@ CHÚ Ý ĐẶC BIỆT VỀ KÝ HIỆU TOÁN HỌC:
 Trả về cấu trúc JSON đúng chuẩn mảng 22 câu hỏi tương thích với schema trò chơi.`;
     }
 
-      model: 'gemini-3.5-flash',
+    const response = await generateContentWithRetry(aiClient, {
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
         responseSchema: getResponseSchema(challengeType),
         temperature: 0.5,
       }
-    });
+    }, preferredModel);
 
     const parsed = JSON.parse(response.text || '[]');
     if (Array.isArray(parsed) && parsed.length > 0) {
