@@ -199,6 +199,7 @@ export default function TeacherPanel({
   onUpdateQuestions, 
   onChangeGameActive,
   onChangeGameTimeLimit 
+}: TeacherPanelProps) {
   const [activeTab, setActiveTab] = useState<'analytics' | 'questions-bank' | 'gemini-tools' | 'password-settings'>('analytics');
   
   const getKeysHeader = () => {
