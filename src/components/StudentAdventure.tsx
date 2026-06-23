@@ -543,14 +543,25 @@ export default function StudentAdventure({
       // Call Gemini Game Master API to fetch custom hint
       setLoadingHint(true);
       try {
-        const key = localStorage.getItem('gemini_api_key') || '';
+        const storedKeys = localStorage.getItem('gemini_api_keys') || localStorage.getItem('gemini_api_key') || '';
+        let keysHeader = '';
+        if (storedKeys.startsWith('[')) {
+          try {
+            const parsed = JSON.parse(storedKeys);
+            if (Array.isArray(parsed)) {
+              keysHeader = parsed.join(',');
+            }
+          } catch (e) {}
+        } else {
+          keysHeader = storedKeys;
+        }
         const model = localStorage.getItem('gemini_api_model') || 'gemini-3-flash-preview';
 
         const response = await fetch('/api/gemini/get-hint', {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
-            'x-api-key': key,
+            'x-api-key': keysHeader,
             'x-api-model': model
           },
           body: JSON.stringify({
