@@ -28,18 +28,35 @@ export default function App() {
   const [authError, setAuthError] = useState('');
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [apiKey, setApiKey] = useState('');
+  const [apiKeys, setApiKeys] = useState<string[]>(['', '', '', '']);
   const [selectedModel, setSelectedModel] = useState('gemini-3-flash-preview');
   const [savedKeyExists, setSavedKeyExists] = useState(false);
 
-  // Read stored key and model on mount
+  // Read stored keys and model on mount
   useEffect(() => {
-    const key = localStorage.getItem('gemini_api_key') || '';
-    const model = localStorage.getItem('gemini_api_model') || 'gemini-3-flash-preview';
-    setApiKey(key);
-    setSelectedModel(model);
-    setSavedKeyExists(!!key);
-    if (!key) {
+    const storedKeysStr = localStorage.getItem('gemini_api_keys') || localStorage.getItem('gemini_api_key') || '';
+    let keysArray: string[] = ['', '', '', ''];
+    if (storedKeysStr) {
+      if (storedKeysStr.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(storedKeysStr);
+          if (Array.isArray(parsed)) {
+            keysArray = [...parsed, '', '', '', ''].slice(0, 4);
+          }
+        } catch (e) {
+          // Fallback if JSON parse fails
+        }
+      } else {
+        const split = storedKeysStr.split(',').map(k => k.trim()).filter(Boolean);
+        keysArray = [...split, '', '', '', ''].slice(0, 4);
+      }
+    }
+    setApiKeys(keysArray);
+    setSelectedModel(localStorage.getItem('gemini_api_model') || 'gemini-3-flash-preview');
+    
+    const hasKey = keysArray.some(k => k.trim() !== '');
+    setSavedKeyExists(hasKey);
+    if (!hasKey) {
       setIsSettingsOpen(true);
     }
   }, []);
@@ -329,21 +346,36 @@ export default function App() {
 
               {/* Form Content */}
               <div className="space-y-5">
-                {/* API Key input */}
-                <div className="space-y-1.5">
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                    Google Gemini API Key
+                {/* API Key inputs */}
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider text-left">
+                    Danh sách Google Gemini API Keys (Tối đa 4 Keys - Tự động xoay vòng)
                   </label>
-                  <input
-                    type="password"
-                    placeholder="Nhập khóa API Gemini (AIzaSy...)"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl py-2.5 px-4 text-slate-950 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm font-semibold shadow-xs"
-                  />
+                  <div className="space-y-2">
+                    {apiKeys.map((keyVal, idx) => (
+                      <div key={idx} className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-slate-400">
+                            {idx === 0 ? '🔑 Khóa API 1 (Mặc định)' : `🔑 Khóa API ${idx + 1} (Dự phòng ${idx})`}
+                          </span>
+                        </div>
+                        <input
+                          type="password"
+                          placeholder={`Nhập API Key ${idx + 1} ${idx > 0 ? '(Không bắt buộc)' : ''}`}
+                          value={keyVal}
+                          onChange={(e) => {
+                            const newKeys = [...apiKeys];
+                            newKeys[idx] = e.target.value;
+                            setApiKeys(newKeys);
+                          }}
+                          className="w-full border border-slate-200 rounded-xl py-2 px-3 text-slate-950 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-amber-500 text-xs font-semibold shadow-xs"
+                        />
+                      </div>
+                    ))}
+                  </div>
                   <div className="flex items-start justify-between gap-2 pt-1">
                     <p className="text-[11px] text-slate-500 leading-relaxed text-left">
-                      Để lấy mã API Key, vui lòng truy cập và tạo khóa miễn phí tại{' '}
+                      Hệ thống tự động xoay vòng sang khóa dự phòng tiếp theo nếu khóa hiện tại bị lỗi giới hạn lượt dùng hoặc hết token. Lấy mã API Key miễn phí tại{' '}
                       <a
                         href="https://aistudio.google.com/api-keys"
                         target="_blank"
@@ -430,12 +462,13 @@ export default function App() {
                 {/* Save button */}
                 <button
                   onClick={() => {
-                    const trimmedKey = apiKey.trim();
-                    if (!trimmedKey) {
-                      alert('Vui lòng nhập API Key để kích hoạt các tính năng AI của app.');
+                    const cleanKeys = apiKeys.map(k => k.trim()).filter(Boolean);
+                    if (cleanKeys.length === 0) {
+                      alert('Vui lòng nhập ít nhất 1 API Key để kích hoạt các tính năng AI của app.');
                       return;
                     }
-                    localStorage.setItem('gemini_api_key', trimmedKey);
+                    localStorage.setItem('gemini_api_keys', JSON.stringify(cleanKeys));
+                    localStorage.setItem('gemini_api_key', cleanKeys[0]); // For backward compatibility
                     localStorage.setItem('gemini_api_model', selectedModel);
                     setSavedKeyExists(true);
                     setIsSettingsOpen(false);
