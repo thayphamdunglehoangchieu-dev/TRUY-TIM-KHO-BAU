@@ -199,8 +199,20 @@ export default function TeacherPanel({
   onUpdateQuestions, 
   onChangeGameActive,
   onChangeGameTimeLimit 
-}: TeacherPanelProps) {
   const [activeTab, setActiveTab] = useState<'analytics' | 'questions-bank' | 'gemini-tools' | 'password-settings'>('analytics');
+  
+  const getKeysHeader = () => {
+    const storedKeys = localStorage.getItem('gemini_api_keys') || localStorage.getItem('gemini_api_key') || '';
+    if (storedKeys.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(storedKeys);
+        if (Array.isArray(parsed)) {
+          return parsed.join(',');
+        }
+      } catch (e) {}
+    }
+    return storedKeys;
+  };
   
   // Password change states
   const [currentPasswordInput, setCurrentPasswordInput] = useState('');
@@ -299,7 +311,7 @@ export default function TeacherPanel({
     };
 
     try {
-      const key = localStorage.getItem('gemini_api_key') || '';
+      const key = getKeysHeader();
       const model = localStorage.getItem('gemini_api_model') || 'gemini-3-flash-preview';
       const base64Data = await convertBase64(targetFile);
       const response = await fetch('/api/gemini/ocr-file', {
@@ -440,7 +452,7 @@ export default function TeacherPanel({
     setLoadingReport(true);
     setReportMarkdown('');
     try {
-      const key = localStorage.getItem('gemini_api_key') || '';
+      const key = getKeysHeader();
       const model = localStorage.getItem('gemini_api_model') || 'gemini-3-flash-preview';
       const response = await fetch('/api/gemini/generate-report-suggestions', {
         method: 'POST',
@@ -464,7 +476,7 @@ export default function TeacherPanel({
     setGeneratingQuestions(true);
     setFeedbackMessage(null);
     try {
-      const key = localStorage.getItem('gemini_api_key') || '';
+      const key = getKeysHeader();
       const model = localStorage.getItem('gemini_api_model') || 'gemini-3-flash-preview';
       const response = await fetch('/api/gemini/generate-questions', {
         method: 'POST',
@@ -498,7 +510,7 @@ export default function TeacherPanel({
     setProcessingOcr(true);
     setFeedbackMessage(null);
     try {
-      const key = localStorage.getItem('gemini_api_key') || '';
+      const key = getKeysHeader();
       const model = localStorage.getItem('gemini_api_model') || 'gemini-3-flash-preview';
       const response = await fetch('/api/gemini/ocr-import', {
         method: 'POST',
