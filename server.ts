@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
+import mammoth from 'mammoth';
 import { Question, StudentLog } from './src/types';
 
 dotenv.config();
@@ -945,7 +946,6 @@ Trả về cấu trúc JSON đúng chuẩn mảng 22 câu hỏi tương thích v
 });
 
 // 8b. Gemini: File Attachment OCR parsing supporting PDF, Word docx, and Images (PNG/JPG)
-import mammoth from 'mammoth';
 app.post('/api/gemini/ocr-file', async (req: Request, res: Response) => {
   const { fileBase64, fileName, mimeType, challengeType } = req.body;
 
@@ -1131,7 +1131,8 @@ Lưu ý: Bạn hãy tính toán trực quan dựa trên logs và đưa ra đề 
 // Vite server integrations as middleware
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
-    const { createServer: createViteServer } = await import('vite');
+    const viteModuleName = 'vite';
+    const { createServer: createViteServer } = await import(viteModuleName);
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
