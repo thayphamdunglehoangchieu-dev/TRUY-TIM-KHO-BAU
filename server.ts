@@ -2,7 +2,6 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
-import { createServer as createViteServer } from 'vite';
 import { Question, StudentLog } from './src/types';
 
 dotenv.config();
@@ -1132,6 +1131,7 @@ Lưu ý: Bạn hãy tính toán trực quan dựa trên logs và đưa ra đề 
 // Vite server integrations as middleware
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
