@@ -2,8 +2,8 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
-import mammoth from 'mammoth';
-import { Question, StudentLog } from './src/types';
+import * as mammoth from 'mammoth';
+import type { Question, StudentLog } from '../src/types';
 
 dotenv.config();
 
@@ -1151,10 +1151,10 @@ async function startServer() {
   });
 }
 
-if (!process.env.VERCEL) {
+const isServerless = process.env.VERCEL === '1' || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+if (!isServerless) {
   startServer();
 }
 
 export default app;
-
 
